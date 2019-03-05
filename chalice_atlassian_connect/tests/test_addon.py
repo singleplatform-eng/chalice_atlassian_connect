@@ -2,7 +2,8 @@ import unittest
 import json
 import requests_mock
 import requests
-from flask import Flask, render_template_string
+from chalice import Chalice
+from flask import render_template_string
 from .. import AtlassianConnect
 from ..base import AtlassianConnectClient
 from atlassian_jwt.encode import encode_token
@@ -40,10 +41,10 @@ class _TestClient(AtlassianConnectClient):
         AtlassianConnectClient._clients = {}
 
 
-class ACFlaskTestCase(unittest.TestCase):
+class ACChaliceTestCase(unittest.TestCase):
     """Test Case"""
     def setUp(self):
-        self.app = Flask("app")
+        self.app = Chalice("app")
         self.app.testing = True
         self.ac = AtlassianConnect(self.app, client_class=_TestClient)
         _TestClient.reset()
@@ -293,10 +294,10 @@ class ACFlaskTestCase(unittest.TestCase):
 
 
 
-class NoAppACFlaskTestCase(ACFlaskTestCase):
+class NoAppACChaliceTestCase(ACChaliceTestCase):
     """Test Case"""
     def setUp(self):
-        self.app = Flask("app")
+        self.app = Chalice("app")
         self.app.testing = True
         self.ac = AtlassianConnect(client_class=_TestClient)
         _TestClient.reset()

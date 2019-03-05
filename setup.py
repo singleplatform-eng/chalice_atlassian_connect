@@ -1,10 +1,11 @@
 """
-Flask-AtlassianConnect
+Chalice-AtlassianConnect
 ----------------------
 
 This is a simple module to make creating atlassian connect based
-plugins easier
+plugins backed by AWS chalice easier
 
+Forked from Flask-AtlassianConnect:
 See https://halkeye.github.io/flask_atlassian_connect/ for docs
 """
 import io
@@ -12,11 +13,11 @@ import re
 
 from setuptools import find_packages, setup
 
-init_py = io.open('flask_atlassian_connect/__init__.py').read()
+init_py = io.open('chalice_atlassian_connect/__init__.py').read()
 metadata = dict(re.findall("__([a-z]+)__ = '([^']+)'", init_py))
 
 setup(
-    name='Flask-AtlassianConnect',
+    name='Chalice-AtlassianConnect',
     version=metadata['version'],
     description="Atlassian Connect Helper",
     long_description=__doc__,
@@ -30,7 +31,7 @@ setup(
     platforms='any',
     install_requires=io.open('requirements/runtime.txt').readlines(),
     setup_requires=['pytest-runner'],
-    keywords=['atlassian connect', 'flask', 'jira', 'confluence'],
+    keywords=['atlassian connect', 'chalice', 'jira', 'confluence'],
     tests_require=[x for x in io.open(
         'requirements/dev.txt').readlines() if not x.startswith('-')],
     classifiers=[

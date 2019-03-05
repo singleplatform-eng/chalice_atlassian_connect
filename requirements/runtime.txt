@@ -1,4 +1,4 @@
-Flask >= 0.12.2
+Chalice >= 1.7.0
 requests >= 2.4.3
 PyJWT >= 1.4.2
 atlassian-jwt >= 1.8.1

@@ -2,7 +2,6 @@ import re
 from functools import wraps
 
 from atlassian_jwt import Authenticator, encode_token
-# from flask import g, url_for
 from chalice import (
     ChaliceViewError,
     NotFoundError,
@@ -68,7 +67,7 @@ class AtlassianConnect(object):
 
         :param app:
             App Object
-        :type app: :py:class:`flask.Flask`
+        :type app: :py:class:`chalice.Chalice`
         """
         if self.app is not None:
             self.app = app
