@@ -2,7 +2,13 @@ import re
 from functools import wraps
 
 from atlassian_jwt import Authenticator, encode_token
-from flask import abort, current_app, jsonify, request, g, url_for
+# from flask import g, url_for
+from chalice import (
+    ChaliceViewError,
+    NotFoundError,
+    Response,
+    UnauthorizedError,
+)
 from jwt import decode
 from jwt.exceptions import DecodeError
 from requests import get
@@ -42,9 +48,10 @@ class AtlassianConnect(object):
     """
     def __init__(self, app=None, client_class=AtlassianConnectClient):
         self.app = app
+        self.app.url_for = self._url_for
 
         self.descriptor = {
-            "authentication": {"type": "jwt"},
+            "authentication": {"type": "none"},
             "lifecycle": {},
             "links": {
             },
@@ -68,9 +75,9 @@ class AtlassianConnect(object):
 
         app.route('/atlassian_connect/descriptor',
                   methods=['GET'])(self._get_descriptor)
-        app.route('/atlassian_connect/<section>/<name>',
+        app.route('/atlassian_connect/{section}/{name}',
                   methods=['GET', 'POST'])(self._handler_router)
-        app.context_processor(self._atlassian_jwt_post_token)
+        app.context_processor = self._atlassian_jwt_post_token
 
         app_descriptor = {
             "name": app.config.get('ADDON_NAME', ""),
@@ -85,32 +92,66 @@ class AtlassianConnect(object):
         }
         self.descriptor.update(app_descriptor)
 
+    def _url_for(self, endpoint, **values):
+        reqctx = self.app.current_request
+
+        external = values.pop('_external', False)
+        method = values.pop('_method', None)
+        scheme = values.pop('_scheme', None)
+        rv = None
+        for k, v in self.app.routes.items():
+            if method is not None:
+                x = v.get(method)
+                if x and x.view_name == endpoint:
+                    rv = k
+            else:
+                for x in v.values():
+                    if x.view_name == endpoint:
+                        rv = k
+
+        if rv is None:
+            return ChaliceViewError("url not found for '%s'" % endpoint)
+
+        if external:
+            if scheme is None:
+                scheme = reqctx.headers.get('x-forwarded-proto', 'http')
+            rv = "%s%s" % (reqctx.headers['host'], rv)
+        if scheme is not None:
+            if not external:
+                raise ChaliceViewError("When specifying _scheme, _external must be True")  # NOQA
+            rv = "%s://%s" % (scheme, rv)
+
+        return rv
+
     def _atlassian_jwt_post_token(self):
-        if not getattr(g, 'ac_client', None):
+        if not getattr(self.app.current_request, 'ac_client', None):
             return dict()
 
-        args = request.args.copy()
+        _args = {}
+        if self.app.current_request.query_params:
+            _args = self.app.current_request.query_params.copy()
         try:
-            del args['jwt']
+            del _args['jwt']
         except KeyError:
             pass
 
         signature = encode_token(
             'POST',
-            request.path + '?' + urlencode(args),
-            g.ac_client.clientKey,
-            g.ac_client.sharedSecret)
-        args['jwt'] = signature
-        return dict(atlassian_jwt_post_url=request.path + '?' + urlencode(args))
+            self.app.current_request.context['path'] + '?' + urlencode(_args),
+            self.app.current_request.ac_client.clientKey,
+            self.app.current_request.ac_client.sharedSecret
+        )
+        _args['jwt'] = signature
+        return dict(atlassian_jwt_post_url=self.app.current_request.context.path + '?' + urlencode(_args))
 
     def _get_descriptor(self):
         """Output atlassian connector descriptor file"""
-        descriptor_external_link = url_for('_get_descriptor', _external=True)
-        descriptor_internal_link = url_for('_get_descriptor', _external=False)
+        descriptor_external_link = self.app.url_for('_get_descriptor', _external=True)
+        descriptor_internal_link = self.app.url_for('_get_descriptor', _external=False)
         self.descriptor["baseUrl"] = descriptor_external_link.replace(
             descriptor_internal_link, '')
         self.descriptor["links"]["self"] = descriptor_external_link
-        return jsonify(self.descriptor)
+        return self.descriptor
 
     def _handler_router(self, section, name):
         """
@@ -120,14 +161,14 @@ class AtlassianConnect(object):
         """
         method = self.sections.get(section, {}).get(name)
         if method is None:
-            (self.app or current_app).logger.error(
+            self.app.logger.error(
                 'Invalid handler for %s -- %s' % (section, name))
             print((section, name, self.sections))
-            abort(404)
+            raise NotFoundError
         ret = method()
         if ret is not None:
             return ret
-        return '', 204
+        return Response(status_code=204, body={})
 
     @staticmethod
     def _make_path(section, name):
@@ -137,22 +178,25 @@ class AtlassianConnect(object):
         def _wrapper(func):
             @wraps(func)
             def _handler(**kwargs):
-                client_key = self.auth.authenticate(
-                    request.method,
-                    request.url,
-                    request.headers)
-                client = self.client_class.load(client_key)
-                if not client:
-                    abort(401)
-                g.ac_client = client
-                kwargs['client'] = client
-                if kwargs_updator:
-                    kwargs.update(kwargs_updator(**kwargs))
+                try:
+                    client_key = self.auth.authenticate(
+                        self.app.current_request.method,
+                        self.app.current_request.context['path'],
+                        self.app.current_request.headers)
+                    client = self.client_class.load(client_key)
+                    if not client:
+                        raise UnauthorizedError
+                    self.app.current_request.ac_client = client
+                    kwargs['client'] = client
+                    if kwargs_updator:
+                        kwargs.update(kwargs_updator(**kwargs))
+                except DecodeError:
+                    pass
 
                 ret = func(**kwargs)
                 if ret is not None:
                     return ret
-                return '', 204
+                return Response(status_code=204, body={})
             self._add_handler(section, name, _handler)
             return func
         return _wrapper
@@ -202,8 +246,10 @@ class AtlassianConnect(object):
         """
         section = "lifecycle"
 
-        self.descriptor.setdefault('lifecycle', {})[
-            name] = AtlassianConnect._make_path(section, name)
+        self.descriptor['authentication'] = {'type': 'jwt'}
+        self.descriptor.setdefault(
+            'lifecycle', {}
+        )[name] = AtlassianConnect._make_path(section, name)
 
         def _decorator(func):
             if name == "installed":
@@ -217,7 +263,10 @@ class AtlassianConnect(object):
     def _installed_wrapper(self, func):
         @wraps(func)
         def inner(*args, **kwargs):
-            client = self.client_class(**request.get_json())
+            json_body = self.app.current_request.json_body
+            if json_body is None:
+                raise Exception("Invalid Credentials")
+            client = self.client_class(**json_body)
             response = get(
                 client.baseUrl.rstrip('/') +
                 '/plugins/servlet/oauth/consumer-info')
@@ -233,11 +282,11 @@ class AtlassianConnect(object):
 
             stored_client = self.client_class.load(client.clientKey)
             if stored_client:
-                token = request.headers.get('authorization', '').lstrip('JWT ')
+                token = self.app.current_request.headers.get('authorization', '').lstrip('JWT ')
                 if not token:
                     # Is not first install, but did not sign the request
                     # properly for an update
-                    return '', 401
+                    raise UnauthorizedError
                 try:
                     decode(
                         token,
@@ -245,7 +294,7 @@ class AtlassianConnect(object):
                         options={"verify_aud": False})
                 except (ValueError, DecodeError):
                     # Invalid secret, so things did not get installed
-                    return '', 401
+                    raise UnauthorizedError
 
             self.client_class.save(client)
             kwargs['client'] = client
@@ -284,7 +333,7 @@ class AtlassianConnect(object):
             If not specified no properties will be returned.
         :type event: array
 
-        .. _filtering: https://developer.atlassian.com/static/connect/docs/beta/modules/common/webhook.html#Filtering
+        .. _filtering: https://developer.atlassian.com/cloud/confluence/modules/webhook/#Filtering
         .. _external webhooks: https://developer.atlassian.com/jiradev/jira-apis/webhooks
         """
         section = 'webhook'
@@ -299,12 +348,15 @@ class AtlassianConnect(object):
         if kwargs.get('propertyKeys'):
             webhook["propertyKeys"] = kwargs.pop('propertyKeys')
 
-        self.descriptor.setdefault('modules', {}).setdefault(
-            'webhooks', []).append(webhook)
+        self.descriptor.setdefault(
+            'modules', {}
+        ).setdefault(
+            'webhooks', []
+        ).append(webhook)
 
         def _wrapper(**kwargs):
             del kwargs
-            content = request.get_json(silent=False)
+            content = self.app.current_request.json_body()
             return {"event": content}
 
         return self._provide_client_handler(
@@ -348,14 +400,102 @@ class AtlassianConnect(object):
         location = location or key
         section = 'module'
 
-        self.descriptor.setdefault('modules', {})[location] = {
+        self.descriptor.setdefault(
+            'modules', {}
+        )[location] = {
             "url": AtlassianConnect._make_path(section, key),
             "name": {"value": name},
             "key": key
-
         }
 
         return self._provide_client_handler(section, key)
+
+    def blueprint(self, key, description, name=None, **kwargs):
+        """
+        Blueprint decorator. See `external blueprint`_ documentation
+
+        Example::
+
+            @ac.blueprint(key="remote-blueprint",
+                name="Simple Remote Blueprint",
+                template=[{
+                    "condition": "project_type",
+                    "params": {"projectTypeKey": "service_desk"}
+                }])
+            def employee_information_panel(client):
+                return 'this is issue %s' % request.args.get('issueKey')
+
+        :param key:
+            A key to identify this module.
+
+            This key must be unique relative to the add on, with the exception
+            of Confluence macros: Their keys need to be globally unique.
+
+            Keys must only contain alphanumeric characters and dashes.
+        :type event: string
+
+        :param template:
+            Defines where the blueprint template is located and the context for variable substitution.
+        :type event: Blueprint Template
+
+        :param name:
+            A human readable name.
+        :type event: string
+
+        Anything else from the `external blueprint`_ docs should also work
+
+        .. _external webpanel: https://developer.atlassian.com/cloud/confluence/modules/blueprint/
+        """
+        name = name or key.replace('-', ' ').title()
+        section = 'blueprint'
+        ctx_section = 'blueprint_context'
+
+        if not re.search(r"^[a-zA-Z0-9-]+$", key):
+            raise Exception("Blueprint(%s) must match ^[a-zA-Z0-9-]+$" % key)
+
+        def _blueprint_context(self, ctx):
+            #json_body = self.app.current_request.json_body
+            #print(json_body)
+            print(ctx)
+            #return self
+            #return Response(status_code=204, body={})
+
+        blueprint = {
+            "key": key,
+            "name": {"value": name},
+            "template": {
+                "url": AtlassianConnect._make_path(section, key),
+            },
+            "description": {"value": description},
+        }
+        if kwargs.get('blueprintContext'):
+            blueprintContext = AtlassianConnect._make_path(ctx_section, key)
+            print(blueprintContext)
+            ctx = kwargs.pop('blueprintContext')
+            self.app.route(
+                path=blueprintContext,
+                name=key,
+                methods=['POST'],
+                view_func=_blueprint_context(self=self, ctx=ctx)
+            )
+            blueprint['blueprintContext'] = {'url': blueprintContext}
+        if kwargs.get('createResult'):
+            createResult = kwargs.pop('createResult')
+            if not re.search(r"^(edit|EDIT|view|VIEW)$", createResult):
+                raise Exception("Blueprint createResult value must be edit|EDIT|view|VIEW")
+            blueprint['createResult'] = createResult
+        if kwargs.get('icon'):
+            blueprint['icon'] = {'url': 'images/' + kwargs.pop('icon'), 'width': 48, 'height': 48}
+        if kwargs.get('conditions'):
+            blueprint['conditions'] = kwargs.pop('conditions')
+
+        self.descriptor.setdefault(
+            'modules', {}
+        ).setdefault(
+            'blueprints', []
+        ).append(blueprint)
+        return self._provide_client_handler(section, key)
+    
 
     def webpanel(self, key, name=None, location=None, **kwargs):
         """
@@ -440,7 +580,7 @@ class AtlassianConnect(object):
         def list(ctx):
             """Show all clients in the database"""
             from json import dumps
-            with (self.app or current_app).app_context():
+            with self.app.app_context():
                 print(dumps([
                     dict(c) for c in self.client_class.all()
                 ]))
@@ -449,14 +589,14 @@ class AtlassianConnect(object):
         def show(ctx, clientKey):
             """Lookup one client from the database"""
             from json import dumps
-            with (self.app or current_app).app_context():
+            with self.app.app_context():
                 print(dumps(dict(self.client_class.load(clientKey))))
 
         @task
         def install(ctx, data):
             """Add a given client from the database"""
             from json import loads
-            with (self.app or current_app).app_context():
+            with self.app.app_context():
                 client = loads(data)
                 self.client_class.save(client)
                 print("Added")
@@ -464,7 +604,7 @@ class AtlassianConnect(object):
         @task()
         def uninstall(ctx, clientKey):
             """Remove a given client from the database"""
-            with (self.app or current_app).app_context():
+            with self.app.app_context():
                 self.client_class.delete(clientKey)
                 print("Deleted")
 
