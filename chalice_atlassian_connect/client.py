@@ -10,37 +10,34 @@ class AtlassianConnectClient(object):
     :ivar sharedSecret: Shared secret between instance and addon
     :ivar baseUrl: Url for Confluence/Jira/Etc
     """
-    _clients = {}
-
-    def __init__(self, **kwargs):
-        super(AtlassianConnectClient, self).__init__()
+    def __init__(self, state=None, **kwargs):
+        if state is None:
+            state = {}
+        self._state = state
         self.clientKey = None
         self.sharedSecret = None
         self.baseUrl = None
         for k, v in list(kwargs.items()):
             setattr(self, k, v)
 
-    @staticmethod
-    def delete(client_key):
+    def delete(self, client_key):
         """
         Removes a client from the database
 
         :param client_key:
             jira/confluence clientKey to load from db
         :type app: string"""
-        del AtlassianConnectClient._clients[client_key]
+        del self._state[client_key]
 
-    @staticmethod
-    def all():
+    def all(self):
         """
         Returns a list of all clients stored in the database
 
         :returns: list of all clients
         :rtype: list"""
-        return AtlassianConnectClient._clients
+        return self._state
 
-    @staticmethod
-    def load(client_key):
+    def load(self, client_key):
         """
         Loads a Client from the (internal) database
 
@@ -48,52 +45,46 @@ class AtlassianConnectClient(object):
             jira/confluence clientKey to load from db
         :type app: string
         :rtype: Client or None"""
-        return AtlassianConnectClient._clients.get(client_key)
+        return self._state.get(client_key)
 
-    @staticmethod
-    def save(client):
+    def save(self, client):
         """
         Save a client to the database
 
         :param client:
             Client object (Default Class or overriden class) to save
         :type app: Client"""
-        AtlassianConnectClient._clients[client.clientKey] = client
+        self._state[client.clientKey] = client
 
 
-class DynamoDBAtlassianConnectClient(AtlassianConnectClient):
-    _table = boto3.resource('dynamodb').Table('SP-Atlassian-Plugin-DB-ClientsTable-8WIBWGIOC8GR')
+class DynamoDBAtlassianConnectClient(object):
+    def __init__(self, table=None, **kwargs):
+        if table is None:
+            table = boto3.resource('dynamodb').Table('SP-Atlassian-Plugin-DB-ClientsTable-8WIBWGIOC8GR')
+        self._table = table
+        self.clientKey = None
+        self.sharedSecret = None
+        self.baseUrl = None
+        for k, v in list(kwargs.items()):
+            setattr(self, k, v)
 
-    def __init__(self, **kwargs):
-        super(DynamoDBAtlassianConnectClient, self).__init__()
-    #     self.clientKey = None
-    #     self.sharedSecret = None
-    #     self.baseUrl = None
-    #     for k, v in list(kwargs.items()):
-    #         setattr(self, k, v)
+    def delete(self, client_key):
+        self._table.delete_item(Key={'clientKey': client_key})
 
-    @staticmethod
-    def delete(client_key):
-        DynamoDBAtlassianConnectClient._table.delete_item(Key={'clientKey': client_key})
-
-    @staticmethod
-    def all():
-        response = DynamoDBAtlassianConnectClient._table.scan()
-        return response['Items']
-
-    @staticmethod
-    def load(client_key):
-        response = DynamoDBAtlassianConnectClient._table.get_item(Key={'clientKey': client_key})
+    def all(self):
+        response = self._table.scan()
         return response.get('Items')
-        if response:
-            response.clientKey = response['clientKey']
-            response.sharedSecret = response['sharedSecret']
-            response.baseUrl = response['baseUrl']
-        return response
 
-    @staticmethod
-    def save(client):
-        DynamoDBAtlassianConnectClient._table.put_item(
+    def load(self, client_key):
+        response = self._table.get_item(Key={'clientKey': client_key}).get('Item')
+        if response:
+            self.clientKey = response['clientKey']
+            self.sharedSecret = response['sharedSecret']
+            self.baseUrl = response['baseUrl']
+            return self
+
+    def save(self, client):
+        self._table.put_item(
             Item={
                 'clientKey': client.clientKey,
                 'sharedSecret': client.sharedSecret,

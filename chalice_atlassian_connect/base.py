@@ -57,7 +57,7 @@ class AtlassianConnect(object):
         }
         if app is not None:
             self.init_app(app)
-        self.client_class = client_class
+        self.client_class = client_class()
         self.auth = _SimpleAuthenticator(addon=self)
         self.sections = {}
 
@@ -267,7 +267,8 @@ class AtlassianConnect(object):
             json_body = self.app.current_request.json_body
             if json_body is None:
                 raise Exception("Invalid Credentials")
-            client = self.client_class(**json_body)
+            client = self.client_class
+            client.__init__(**json_body)
             response = get(
                 client.baseUrl.rstrip('/') +
                 '/plugins/servlet/oauth/consumer-info')
