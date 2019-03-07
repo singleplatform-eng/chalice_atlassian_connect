@@ -72,9 +72,9 @@ class AtlassianConnect(object):
         if self.app is not None:
             self.app = app
 
-        app.route('/atlassian_connect/descriptor',
+        app.route('/atlassian-connect.json',
                   methods=['GET'])(self._get_descriptor)
-        app.route('/atlassian_connect/{section}/{name}',
+        app.route('/{section}/{name}',
                   methods=['GET', 'POST'])(self._handler_router)
         app.context_processor = self._atlassian_jwt_post_token
 
@@ -112,6 +112,8 @@ class AtlassianConnect(object):
             return ChaliceViewError("url not found for '%s'" % endpoint)
 
         if external:
+            if reqctx is None:
+                return rv
             if scheme is None:
                 scheme = reqctx.headers.get('x-forwarded-proto', 'http')
             rv = "%s%s" % (reqctx.headers['host'], rv)
@@ -171,7 +173,7 @@ class AtlassianConnect(object):
 
     @staticmethod
     def _make_path(section, name):
-        return "/atlassian_connect/" + "/".join([section, name])
+        return "/".join(['', section, name])
 
     def _provide_client_handler(self, section, name, kwargs_updator=None):
         def _wrapper(func):
@@ -247,7 +249,7 @@ class AtlassianConnect(object):
 
         self.descriptor['authentication'] = {'type': 'jwt'}
         self.descriptor.setdefault(
-            'lifecycle', {}
+            section, {}
         )[name] = AtlassianConnect._make_path(section, name)
 
         def _decorator(func):
@@ -335,7 +337,7 @@ class AtlassianConnect(object):
         .. _filtering: https://developer.atlassian.com/cloud/confluence/modules/webhook/#Filtering
         .. _external webhooks: https://developer.atlassian.com/jiradev/jira-apis/webhooks
         """
-        section = 'webhook'
+        section = 'webhooks'
 
         webhook = {
             "event": event,
@@ -350,7 +352,7 @@ class AtlassianConnect(object):
         self.descriptor.setdefault(
             'modules', {}
         ).setdefault(
-            'webhooks', []
+            section, []
         ).append(webhook)
 
         def _wrapper(**kwargs):
@@ -397,10 +399,10 @@ class AtlassianConnect(object):
         """
         name = name or key
         location = location or key
-        section = 'module'
+        section = 'modules'
 
         self.descriptor.setdefault(
-            'modules', {}
+            section, {}
         )[location] = {
             "url": AtlassianConnect._make_path(section, key),
             "name": {"value": name},
@@ -409,13 +411,13 @@ class AtlassianConnect(object):
 
         return self._provide_client_handler(section, key)
 
-    def blueprint(self, key, description, name=None, **kwargs):
+    def confluence_blueprint(self, key, description, name=None, **kwargs):
         """
         Blueprint decorator. See `external blueprint`_ documentation
 
         Example::
 
-            @ac.blueprint(key="remote-blueprint",
+            @ac.confluence_blueprint(key="remote-blueprint",
                 name="Simple Remote Blueprint",
                 template=[{
                     "condition": "project_type",
@@ -434,7 +436,7 @@ class AtlassianConnect(object):
         :type event: string
 
         :param template:
-            Defines where the blueprint template is located and the context for variable substitution.
+            Defines where the blueprint template is located.
         :type event: Blueprint Template
 
         :param name:
@@ -446,18 +448,10 @@ class AtlassianConnect(object):
         .. _external webpanel: https://developer.atlassian.com/cloud/confluence/modules/blueprint/
         """
         name = name or key.replace('-', ' ').title()
-        section = 'blueprint'
-        ctx_section = 'blueprint_context'
+        section = 'blueprints'
 
         if not re.search(r"^[a-zA-Z0-9-]+$", key):
             raise Exception("Blueprint(%s) must match ^[a-zA-Z0-9-]+$" % key)
-
-        def _blueprint_context(self, ctx):
-            #json_body = self.app.current_request.json_body
-            #print(json_body)
-            print(ctx)
-            #return self
-            #return Response(status_code=204, body={})
 
         blueprint = {
             "key": key,
@@ -467,34 +461,66 @@ class AtlassianConnect(object):
             },
             "description": {"value": description},
         }
-        if kwargs.get('blueprintContext'):
-            blueprintContext = AtlassianConnect._make_path(ctx_section, key)
-            print(blueprintContext)
-            ctx = kwargs.pop('blueprintContext')
-            self.app.route(
-                path=blueprintContext,
-                name=key,
-                methods=['POST'],
-                view_func=_blueprint_context(self=self, ctx=ctx)
-            )
-            blueprint['blueprintContext'] = {'url': blueprintContext}
         if kwargs.get('createResult'):
             createResult = kwargs.pop('createResult')
             if not re.search(r"^(edit|EDIT|view|VIEW)$", createResult):
                 raise Exception("Blueprint createResult value must be edit|EDIT|view|VIEW")
             blueprint['createResult'] = createResult
         if kwargs.get('icon'):
-            blueprint['icon'] = {'url': 'images/' + kwargs.pop('icon'), 'width': 48, 'height': 48}
+            blueprint['icon'] = {'url': '/images/' + kwargs.pop('icon'), 'width': 48, 'height': 48}
         if kwargs.get('conditions'):
             blueprint['conditions'] = kwargs.pop('conditions')
 
         self.descriptor.setdefault(
             'modules', {}
         ).setdefault(
-            'blueprints', []
+            section, []
         ).append(blueprint)
         return self._provide_client_handler(section, key)
-    
+
+    def confluence_blueprint_context(self, key, **kwargs):
+        """
+        Blueprint template context decorator. See `external blueprint template context`_ documentation
+
+        Example::
+
+            @ac.confluence_blueprint_context(key="remote-blueprint",
+            def blueprint_context():
+                ctx = [{
+                    'identifier': 'ContentPageTitle',
+                    'value': 'page title',
+                    'representation': 'plain'
+                }]
+                return Response(body=ctx)
+
+        :param key:
+            A key to identify this blueprint context.
+
+            This key must be identical to a defined confluence_blueprint key
+        :type event: string
+
+        Anything else from the `external blueprint`_ docs should also work
+
+        .. _external webpanel: https://developer.atlassian.com/cloud/confluence/modules/blueprint-template-context/
+        """
+        section = 'blueprint_contexts'
+
+        registered_blueprints = self.descriptor['modules']['blueprints']
+        my_blueprint = list(filter(lambda x: x['key'] == key, registered_blueprints))
+        if my_blueprint is None:
+            raise Exception("Blueprint template context(%s) must correspond to defined confluence_blueprint" % key)
+        other_blueprints = list(filter(lambda x: x['key'] != key, registered_blueprints))
+
+        blueprint_context = {
+            "blueprintContext": {
+                "url": AtlassianConnect._make_path(section, key)
+            }
+        }
+
+        my_blueprint[0]['template'].update(blueprint_context)
+        registered_blueprints = my_blueprint + other_blueprints
+        self.descriptor['modules']['blueprints'] = registered_blueprints
+        return self._provide_client_handler(section, key)
 
     def webpanel(self, key, name=None, location=None, **kwargs):
         """
@@ -540,7 +566,7 @@ class AtlassianConnect(object):
         """
         name = name or key
         location = location or key
-        section = 'webpanel'
+        section = 'webPanels'
 
         if not re.search(r"^[a-zA-Z0-9-]+$", key):
             raise Exception("Webpanel(%s) must match ^[a-zA-Z0-9-]+$" % key)
@@ -557,7 +583,7 @@ class AtlassianConnect(object):
         self.descriptor.setdefault(
             'modules', {}
         ).setdefault(
-            'webPanels', []
+            section, []
         ).append(webpanel_capability)
         return self._provide_client_handler(section, key)
 
