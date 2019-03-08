@@ -447,7 +447,7 @@ class AtlassianConnect(object):
 
         Anything else from the `external blueprint`_ docs should also work
 
-        .. _external webpanel: https://developer.atlassian.com/cloud/confluence/modules/blueprint/
+        .. _external blueprints: https://developer.atlassian.com/cloud/confluence/modules/blueprint/
         """
         name = name or key.replace('-', ' ').title()
         section = 'blueprints'
@@ -503,7 +503,7 @@ class AtlassianConnect(object):
 
         Anything else from the `external blueprint`_ docs should also work
 
-        .. _external webpanel: https://developer.atlassian.com/cloud/confluence/modules/blueprint-template-context/
+        .. _external blueprint_contexts: https://developer.atlassian.com/cloud/confluence/modules/blueprint-template-context/
         """
         section = 'blueprint_contexts'
 
@@ -576,7 +576,7 @@ class AtlassianConnect(object):
         webpanel_capability = {
             "key": key,
             "name": {"value": name},
-            "url": AtlassianConnect._make_path(section.lower(), key) + '?issueKey={issue.key}',
+            "url": AtlassianConnect._make_path(section, key) + '?issueKey={issue.key}',
             "location": location
         }
         if kwargs.get('conditions'):
