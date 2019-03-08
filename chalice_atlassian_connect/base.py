@@ -163,7 +163,7 @@ class AtlassianConnect(object):
         """
         method = self.sections.get(section, {}).get(name)
         if method is None:
-            self.app.logger.error(
+            self.app.log.error(
                 'Invalid handler for %s -- %s' % (section, name))
             print((section, name, self.sections))
             raise NotFoundError
