@@ -576,7 +576,7 @@ class AtlassianConnect(object):
         webpanel_capability = {
             "key": key,
             "name": {"value": name},
-            "url": AtlassianConnect._make_path(section, key) + '?issueKey={issue.key}',
+            "url": AtlassianConnect._make_path(section.lower(), key) + '?issueKey={issue.key}',
             "location": location
         }
         if kwargs.get('conditions'):
@@ -585,7 +585,7 @@ class AtlassianConnect(object):
         self.descriptor.setdefault(
             'modules', {}
         ).setdefault(
-            'webpanels', []
+            section, []
         ).append(webpanel_capability)
         return self._provide_client_handler(section, key)
 
