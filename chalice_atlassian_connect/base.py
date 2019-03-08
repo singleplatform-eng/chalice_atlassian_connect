@@ -585,7 +585,7 @@ class AtlassianConnect(object):
         self.descriptor.setdefault(
             'modules', {}
         ).setdefault(
-            section, []
+            'webpanels', []
         ).append(webpanel_capability)
         return self._provide_client_handler(section, key)
 
