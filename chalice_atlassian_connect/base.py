@@ -524,7 +524,7 @@ class AtlassianConnect(object):
         self.descriptor['modules']['blueprints'] = registered_blueprints
         return self._provide_client_handler(section, key)
 
-    def webpanel(self, key, name=None, location=None, **kwargs):
+    def webpanel(self, key, name=None, location=None, query_params=None, **kwargs):
         """
         Webpanel decorator. See `external webpanel`_ documentation
 
@@ -533,6 +533,7 @@ class AtlassianConnect(object):
             @ac.webpanel(key="userPanel",
                 name="Employee Information",
                 location="atl.jira.view.issue.right.context",
+                query_params="issueKey={issue.key}",
                 conditions=[{
                     "condition": "project_type",
                     "params": {"projectTypeKey": "service_desk"}
@@ -566,17 +567,21 @@ class AtlassianConnect(object):
 
         .. _external webpanel: https://developer.atlassian.com/static/connect/docs/beta/modules/common/web-panel.html
         """
-        name = name or key
+        name = name or key.replace('-', ' ').title()
         location = location or key
         section = 'webPanels'
 
         if not re.search(r"^[a-zA-Z0-9-]+$", key):
             raise Exception("Webpanel(%s) must match ^[a-zA-Z0-9-]+$" % key)
 
+        webpanel_url = AtlassianConnect._make_path(section, key)
+        if query_params is not None:
+            webpanel_url = webpanel_url + '?' + query_params
+
         webpanel_capability = {
             "key": key,
             "name": {"value": name},
-            "url": AtlassianConnect._make_path(section, key) + '?issueKey={issue.key}',
+            "url": webpanel_url,
             "location": location
         }
         if kwargs.get('conditions'):
