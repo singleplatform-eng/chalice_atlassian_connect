@@ -51,6 +51,7 @@ class AtlassianConnect(object):
 
         self.descriptor = {
             "authentication": {"type": "none"},
+            "apiMigrations": {"gdpr": True},
             "lifecycle": {},
             "links": {
             },
