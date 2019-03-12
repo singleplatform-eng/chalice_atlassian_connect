@@ -45,8 +45,12 @@ class AtlassianConnect(object):
     You will need to provide a Client class that
     contains load(id) and save(client) methods.
     """
-    def __init__(self, app=None, client_class=AtlassianConnectClient):
+    def __init__(self, app=None, client_class=AtlassianConnectClient, root_url='', config=None):
         self.app = app
+        self.root_url = root_url
+        if not config:
+            config = {}
+        self.config = config
         self.app.url_for = self._url_for
 
         self.descriptor = {
@@ -57,12 +61,12 @@ class AtlassianConnect(object):
             },
         }
         if app is not None:
-            self.init_app(app)
+            self.init_app(app=app, root_url=root_url, config=config)
         self.client_class = client_class()
         self.auth = _SimpleAuthenticator(addon=self)
         self.sections = {}
 
-    def init_app(self, app):
+    def init_app(self, app, root_url, config):
         """
         Initialize Application object stuff
 
@@ -73,21 +77,22 @@ class AtlassianConnect(object):
         if self.app is not None:
             self.app = app
 
-        app.route('/atlassian-connect.json',
+        app.route('%s/atlassian-connect.json' % root_url,
                   methods=['GET'])(self._get_descriptor)
-        app.route('/{section}/{name}',
+        app.route('%s/{section}/{name}' % root_url,
                   methods=['GET', 'POST'])(self._handler_router)
-        app.context_processor = self._atlassian_jwt_post_token
+        if not hasattr(app, 'context_processor'):
+            app.context_processor = self._atlassian_jwt_post_token
 
         app_descriptor = {
-            "name": app.config.get('ADDON_NAME', ""),
-            "description": app.config.get('ADDON_DESCRIPTION', ""),
-            "key": app.config.get('ADDON_KEY'),
+            "name": config.get('ADDON_NAME', ""),
+            "description": config.get('ADDON_DESCRIPTION', ""),
+            "key": config['ADDON_KEY'],
 
-            "scopes": app.config.get('ADDON_SCOPES', ["READ"]),
+            "scopes": config.get('ADDON_SCOPES', ["READ"]),
             "vendor": {
-                "name": app.config.get('ADDON_VENDOR_NAME'),
-                "url": app.config.get('ADDON_VENDOR_URL')
+                "name": config['ADDON_VENDOR_NAME'],
+                "url": config['ADDON_VENDOR_URL']
             },
         }
         self.descriptor.update(app_descriptor)
@@ -172,9 +177,8 @@ class AtlassianConnect(object):
             return ret
         return Response(status_code=204, body={})
 
-    @staticmethod
-    def _make_path(section, name):
-        return "/".join(['', section, name])
+    def _make_path(self, section, name):
+        return "/".join([self.root_url, section, name])
 
     def _provide_client_handler(self, section, name, kwargs_updator=None):
         def _wrapper(func):
@@ -251,7 +255,7 @@ class AtlassianConnect(object):
         self.descriptor['authentication'] = {'type': 'jwt'}
         self.descriptor.setdefault(
             section, {}
-        )[name] = AtlassianConnect._make_path(section, name)
+        )[name] = self._make_path(section, name)
 
         def _decorator(func):
             if name == "installed":
@@ -343,7 +347,7 @@ class AtlassianConnect(object):
 
         webhook = {
             "event": event,
-            "url": AtlassianConnect._make_path(section, event.replace(":", "")),
+            "url": self._make_path(section, event.replace(":", "")),
             "excludeBody": exclude_body
         }
         if kwargs.get('filter'):
@@ -406,7 +410,7 @@ class AtlassianConnect(object):
         self.descriptor.setdefault(
             section, {}
         )[location] = {
-            "url": AtlassianConnect._make_path(section, key),
+            "url": self._make_path(section, key),
             "name": {"value": name},
             "key": key
         }
@@ -459,7 +463,7 @@ class AtlassianConnect(object):
             "key": key,
             "name": {"value": name},
             "template": {
-                "url": AtlassianConnect._make_path(section, key),
+                "url": self._make_path(section, key),
             },
             "description": {"value": description},
         }
@@ -515,7 +519,7 @@ class AtlassianConnect(object):
 
         blueprint_context = {
             "blueprintContext": {
-                "url": AtlassianConnect._make_path(section, key)
+                "url": self._make_path(section, key)
             }
         }
 
@@ -574,7 +578,7 @@ class AtlassianConnect(object):
         if not re.search(r"^[a-zA-Z0-9-]+$", key):
             raise Exception("Webpanel(%s) must match ^[a-zA-Z0-9-]+$" % key)
 
-        webpanel_url = AtlassianConnect._make_path(section, key)
+        webpanel_url = self._make_path(section, key)
         if query_params is not None:
             webpanel_url = webpanel_url + '?' + query_params
 
