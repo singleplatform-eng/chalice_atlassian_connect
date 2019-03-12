@@ -417,13 +417,13 @@ class AtlassianConnect(object):
 
         return self._provide_client_handler(section, key)
 
-    def confluence_blueprint(self, key, description, name=None, **kwargs):
+    def blueprint(self, key, description, name=None, **kwargs):
         """
         Blueprint decorator. See `external blueprint`_ documentation
 
         Example::
 
-            @ac.confluence_blueprint(key="remote-blueprint",
+            @ac.blueprint(key="remote-blueprint",
                 name="Simple Remote Blueprint",
                 template=[{
                     "condition": "project_type",
@@ -484,13 +484,13 @@ class AtlassianConnect(object):
         ).append(blueprint)
         return self._provide_client_handler(section, key)
 
-    def confluence_blueprint_context(self, key, **kwargs):
+    def blueprint_context(self, key, **kwargs):
         """
         Blueprint template context decorator. See `external blueprint template context`_ documentation
 
         Example::
 
-            @ac.confluence_blueprint_context(key="remote-blueprint",
+            @ac.blueprint_context(key="remote-blueprint",
             def blueprint_context():
                 ctx = [{
                     'identifier': 'ContentPageTitle',
@@ -502,7 +502,7 @@ class AtlassianConnect(object):
         :param key:
             A key to identify this blueprint context.
 
-            This key must be identical to a defined confluence_blueprint key
+            This key must be identical to a defined blueprint key
         :type event: string
 
         Anything else from the `external blueprint`_ docs should also work
@@ -514,7 +514,7 @@ class AtlassianConnect(object):
         registered_blueprints = self.descriptor['modules']['blueprints']
         my_blueprint = list(filter(lambda x: x['key'] == key, registered_blueprints))
         if my_blueprint is None:
-            raise Exception("Blueprint template context(%s) must correspond to defined confluence_blueprint" % key)
+            raise Exception("Blueprint template context(%s) must correspond to defined blueprint" % key)
         other_blueprints = list(filter(lambda x: x['key'] != key, registered_blueprints))
 
         blueprint_context = {
