@@ -51,7 +51,6 @@ class AtlassianConnect(object):
         if not config:
             config = {}
         self.config = config
-        self.app.url_for = self._url_for
 
         self.descriptor = {
             "authentication": {"type": "none"},
@@ -77,6 +76,10 @@ class AtlassianConnect(object):
         if self.app is not None:
             self.app = app
 
+        if not hasattr(app, 'root_urls'):
+            app.root_urls = []
+
+        app.root_urls.append(root_url)
         app.route('%s/atlassian-connect.json' % root_url,
                   methods=['GET'])(self._get_descriptor)
         app.route('%s/{section}/{name}' % root_url,
@@ -88,7 +91,6 @@ class AtlassianConnect(object):
             "name": config.get('ADDON_NAME', ""),
             "description": config.get('ADDON_DESCRIPTION', ""),
             "key": config['ADDON_KEY'],
-
             "scopes": config.get('ADDON_SCOPES', ["READ"]),
             "vendor": {
                 "name": config['ADDON_VENDOR_NAME'],
@@ -97,7 +99,7 @@ class AtlassianConnect(object):
         }
         self.descriptor.update(app_descriptor)
 
-    def _url_for(self, endpoint, **values):
+    def url_for(self, endpoint, **values):
         reqctx = self.app.current_request
 
         external = values.pop('_external', False)
@@ -153,8 +155,8 @@ class AtlassianConnect(object):
 
     def _get_descriptor(self):
         """Output atlassian connector descriptor file"""
-        descriptor_external_link = self.app.url_for('_get_descriptor', _external=True)
-        descriptor_internal_link = self.app.url_for('_get_descriptor', _external=False)
+        descriptor_external_link = self.url_for('_get_descriptor', _external=True)
+        descriptor_internal_link = self.url_for('_get_descriptor', _external=False)
         self.descriptor["baseUrl"] = descriptor_external_link.replace(
             descriptor_internal_link, '')
         self.descriptor["links"]["self"] = descriptor_external_link
