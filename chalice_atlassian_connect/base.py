@@ -473,7 +473,7 @@ class AtlassianConnect(object):
                 raise Exception("Blueprint createResult value must be edit|EDIT|view|VIEW")
             blueprint['createResult'] = createResult
         if kwargs.get('icon'):
-            blueprint['icon'] = {'url': '/images/' + kwargs.pop('icon'), 'width': 48, 'height': 48}
+            blueprint['icon'] = {'url': '/static/images/' + kwargs.pop('icon'), 'width': 48, 'height': 48}
         if kwargs.get('conditions'):
             blueprint['conditions'] = kwargs.pop('conditions')
 
