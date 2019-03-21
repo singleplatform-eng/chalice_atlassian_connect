@@ -261,8 +261,9 @@ class AtlassianConnect(object):
 
         def _decorator(func):
             if name == "installed":
-                self._add_handler(section, name,
-                                  self._installed_wrapper(func))
+                self._add_handler(section, name, self._installed_wrapper(func))
+            elif name == "uninstalled":
+                self._add_handler(section, name, self._uninstalled_wrapper(func))
             else:
                 self._add_handler(section, name, func)
             return func
@@ -310,6 +311,13 @@ class AtlassianConnect(object):
             return func(*args, **kwargs)
         return inner
 
+    def _uninstalled_wrapper(self, func):
+        @wraps(func)
+        def inner(*args, **kwargs):
+            self.client_class.delete(self.client_class.clientKey)
+            return func(*args, **kwargs)
+        return inner
+
     def webhook(self, event, exclude_body=False, **kwargs):
         """
         Webhook decorator. See `external webhooks`_ documentation
@@ -343,7 +351,7 @@ class AtlassianConnect(object):
         :type event: array
 
         .. _filtering: https://developer.atlassian.com/cloud/confluence/modules/webhook/#Filtering
-        .. _external webhooks: https://developer.atlassian.com/jiradev/jira-apis/webhooks
+        .. _external webhooks: https://developer.atlassian.com/cloud/jira/platform/webhooks/
         """
         section = 'webhooks'
 
